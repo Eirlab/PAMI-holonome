@@ -10,6 +10,7 @@ class PAMI {
         void ledColorRGB(int r, int g, int b, int lednum, int brightness);
         unsigned char readPot();
         void animateLeds();
+        void bluetoothLeds();
     private:
         
 };

@@ -4,12 +4,13 @@
 #include "main.hpp"
 #include "music.hpp"
 #include "BluetoothSerial.h"
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
+
 BluetoothSerial SerialBT;
 
 Adafruit_NeoPixel strip(NUM_LEDS, LED, NEO_GRB + NEO_KHZ800);
+
+int hue = 0; // Variable pour la teinte des LEDs
+unsigned char alpha = 40; // luminosité des LEDs
 
 void bluetoothInterface();
 
@@ -25,8 +26,6 @@ PAMI::PAMI(){
     );
 }
 
-float alpha = 1; // Coefficient d'atténuation pour la luminosité des LEDs
-
 void PAMI::bluetoothInterface() {
     // Initialisation de la communication série
     SerialBT.begin("PAMIH");
@@ -36,10 +35,49 @@ void PAMI::bluetoothInterface() {
     while (true) {
         if(SerialBT.available()) {
             String command = SerialBT.readStringUntil('\n');
+            Serial.print("Commande reçue : ");
             Serial.println(command);
-            alpha = command.toFloat();
+            int separatorIndex = command.indexOf(':');
+            String id;
+            
+            if (separatorIndex != -1) {
+              id = command.substring(0, separatorIndex);  // Extraire l'ID
+              id.trim();  // Nettoyer les espaces autour de l'ID
+              // Serial.print("id : ");
+              // Serial.println(id);
+              command = command.substring(separatorIndex + 1);  // Extraire la valeur
+              // Serial.print("command : ");
+              // Serial.println(command);
+            }
+            else {
+              id = command;
+            }
+
+            if (id.startsWith("help")) {
+              //
+            }
+            else if (id.startsWith("JOY")) {
+                separatorIndex = command.indexOf(',');
+                hue = command.substring(0, separatorIndex).toInt()*65536/360;
+                // Serial.print("hue : ");
+                // Serial.println(hue);
+                alpha = command.substring(separatorIndex + 1).toInt();
+                // Serial.print("alpha : ");
+                // Serial.println(alpha);
+            }
+            else if (id.startsWith("deploy")) {
+                // avancerCanettes();
+                // delay(value);
+                // arreterCanettes();
+            }
+            else if (id.startsWith("retract")) {
+                // reculerCanettes();
+                // delay(value);
+                // arreterCanettes();
+            }
+            else Serial.println("Commande inconnue");
         }
-        vTaskDelay(10 / portTICK_PERIOD_MS); // Délai pour éviter une boucle trop rapide
+        vTaskDelay(1 / portTICK_PERIOD_MS); // Délai pour éviter une boucle trop rapide
     }
 }
 
@@ -48,11 +86,11 @@ void animateLedsTask(void *pvParameters) {
     strip.begin();
     strip.show();
   
-    int hue = 0;
+    hue = 0;
   
     while (true) {
       for (int i = 0; i < NUM_LEDS; i++) {
-        int a = alpha * map(analogRead(POT), 0, 4095, 0, 255);
+        int a = map(analogRead(POT), 0, 4095, 0, 255);
         strip.setPixelColor(i, strip.ColorHSV(hue, 255, a*a/255));
       }
       strip.show();
@@ -66,15 +104,42 @@ void animateLedsTask(void *pvParameters) {
     return map(analogRead(POT), 0, 4095, 0, 255);
   }
 
-  void PAMI::animateLeds(){
-    xTaskCreate(
-        animateLedsTask,      // Tâche LEDs
-        "LEDs",
-        2048,
-        NULL,
-        1,
-        NULL
-    );
+void PAMI::animateLeds(){
+  xTaskCreate(
+      animateLedsTask,      // Tâche LEDs
+      "LEDs",
+      2048,
+      NULL,
+      1,
+      NULL
+  );
+}
+
+// === Tâche 3 : Animation LED Bluetooth ===
+void bluetoothLedsTask(void *pvParameters) {
+  strip.begin();
+  strip.show();
+
+  hue = 0;
+
+  while (true) {
+    for (int i = 0; i < NUM_LEDS; i++) {
+      strip.setPixelColor(i, strip.ColorHSV(hue, 255, alpha*alpha/255));
+    }
+    strip.show();
+    vTaskDelay(30 / portTICK_PERIOD_MS); // délai fluide
+  }
+}
+
+void PAMI::bluetoothLeds(){
+  xTaskCreate(
+    bluetoothLedsTask,      // Tâche LEDs
+      "BLEDs",
+      2048,
+      NULL,
+      1,
+      NULL
+  );
 }
 
 // === Fonction utilitaire pour générer des ondes carrées ===
@@ -101,8 +166,8 @@ void playTone(int freq, int duration) {
     int divider = 0, noteDuration = 0;
   
     while (true) {
-      while(!digitalRead(BUT1)); // Attendre que le bouton soit pressé
-      while(digitalRead(BUT1)); // Attendre que le bouton soit relâché
+      while(!digitalRead(BUT1)) vTaskDelay(100); // Attendre que le bouton soit pressé
+      while(digitalRead(BUT1)) vTaskDelay(100); // Attendre que le bouton soit relâché
   
       for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
         

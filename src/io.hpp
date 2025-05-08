@@ -23,6 +23,23 @@
 #define IO2 2
 #define LED 15
 
+#define P0 100
+#define EN1 101
+#define EN2 102
+#define EN3 103
+#define EN4 104
+#define EN5 105
+#define EN6 106
+#define P7 107
+#define SW1 110
+#define DRIVER_SLEEP 111
+#define DRIVER_FAULT 112
+#define P13 113
+#define P14 114
+#define P15 115
+#define P16 116
+#define SW2 117
+
 #define NUM_LEDS   2
 
 #endif
