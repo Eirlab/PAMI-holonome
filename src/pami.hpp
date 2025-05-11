@@ -11,8 +11,12 @@ class PAMI {
         unsigned char readPot();
         void animateLeds();
         void bluetoothLeds();
+        void navigation();
     private:
         
 };
+
+extern int angle;
+extern unsigned char alpha;
 
 #endif

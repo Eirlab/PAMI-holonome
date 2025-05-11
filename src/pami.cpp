@@ -4,18 +4,43 @@
 #include "main.hpp"
 #include "music.hpp"
 #include "BluetoothSerial.h"
+#include "PCF8575.h"
+
+// PCF8575 pcf8575(0x20);
 
 BluetoothSerial SerialBT;
 
 Adafruit_NeoPixel strip(NUM_LEDS, LED, NEO_GRB + NEO_KHZ800);
 
 int hue = 0; // Variable pour la teinte des LEDs
-unsigned char alpha = 40; // luminosité des LEDs
+int angle = 0; // Variable pour l'angle de rotation des servos
+unsigned char alpha = 0; // luminosité des LEDs
 
 void bluetoothInterface();
 
 PAMI::PAMI(){
     pinMode(BUZZER, OUTPUT);
+    // pcf8575.pinMode(7, OUTPUT);
+    // pcf8575.pinMode(11, OUTPUT);
+
+    // pcf8575.pinMode(1, OUTPUT);
+    // pcf8575.pinMode(2, OUTPUT);
+    // pcf8575.pinMode(3, OUTPUT);
+    // pcf8575.pinMode(4, OUTPUT);
+    // pcf8575.pinMode(5, OUTPUT);
+    // pcf8575.pinMode(6, OUTPUT);
+
+    // pcf8575.pinMode(16, OUTPUT);
+    // pcf8575.pinMode(15, OUTPUT);
+    // pcf8575.pinMode(14, OUTPUT);
+    // pcf8575.pinMode(13, OUTPUT);
+    // pcf8575.pinMode(0, OUTPUT);
+
+    // pcf8575.begin();
+
+    // pinMode(IO13, OUTPUT);
+    // pinMode(IO2, OUTPUT);
+    // pinMode(IO26, OUTPUT);
     xTaskCreate(
         [](void* pvParameters) { static_cast<PAMI*>(pvParameters)->bluetoothInterface(); },  // Tâche Bluetooth
         "Bluetooth",
@@ -35,8 +60,8 @@ void PAMI::bluetoothInterface() {
     while (true) {
         if(SerialBT.available()) {
             String command = SerialBT.readStringUntil('\n');
-            Serial.print("Commande reçue : ");
-            Serial.println(command);
+            // Serial.print("Commande reçue : ");
+            // Serial.println(command);
             int separatorIndex = command.indexOf(':');
             String id;
             
@@ -59,6 +84,7 @@ void PAMI::bluetoothInterface() {
             else if (id.startsWith("JOY")) {
                 separatorIndex = command.indexOf(',');
                 hue = command.substring(0, separatorIndex).toInt()*65536/360;
+                angle = command.substring(0, separatorIndex).toInt();
                 // Serial.print("hue : ");
                 // Serial.println(hue);
                 alpha = command.substring(separatorIndex + 1).toInt();
@@ -218,3 +244,109 @@ void PAMI::playMelody(){
         0 // cœur 0
     );
 }
+
+// void mot1(int speed, char direction) {
+//   analogWrite(IO13, speed); 
+//   if (direction == 'F') {
+//     pcf8575.digitalWrite(14, HIGH);
+//     pcf8575.digitalWrite(13, LOW);
+//   } else if (direction == 'R') {
+//     pcf8575.digitalWrite(14, LOW);
+//     pcf8575.digitalWrite(13, HIGH);
+//   }
+// }
+
+// void mot2(int speed, char direction) {
+//   analogWrite(IO2, speed); 
+//   if (direction == 'F') {
+//     pcf8575.digitalWrite(7, HIGH);
+//     pcf8575.digitalWrite(0, LOW);
+//   } else if (direction == 'R') {
+//     pcf8575.digitalWrite(7, LOW);
+//     pcf8575.digitalWrite(0, HIGH);
+//   }
+// }
+
+// void mot3(int speed, char direction) {
+//   analogWrite(IO26, speed); 
+//   if (direction == 'F') {
+//     pcf8575.digitalWrite(5, HIGH);
+//     pcf8575.digitalWrite(6, LOW);
+//   } else if (direction == 'R') {
+//     pcf8575.digitalWrite(5, LOW);
+//     pcf8575.digitalWrite(6, HIGH);
+//   }
+// }
+
+// void navigationTask(void *pvParameters) {
+
+//   while (true){
+//     Serial.print("Angle : ");
+//     Serial.println(angle);
+//     Serial.print("Alpha : ");
+//     Serial.println(alpha);
+//     // Convertir l'angle en radians
+//     float rad = angle * 3.14 / 180.0;
+
+//     // Calculer les composantes X et Y du vecteur de mouvement
+//     float vx = cos(rad);
+//     float vy = sin(rad);
+
+//     // Projections du vecteur de vitesse sur les axes des moteurs
+//     // Les moteurs sont espacés de 120°, donc leurs angles sont 0°, 120°, et 240°
+//     float m1 = vx * cos(0) + vy * sin(0);               // Moteur 1
+//     float m2 = vx * cos(2*PI/3) + vy * sin(2*PI/3);     // Moteur 2
+//     float m3 = vx * cos(4*PI/3) + vy * sin(4*PI/3);     // Moteur 3
+
+//     // Normalisation pour que le max des valeurs soit dans [-1, 1]
+//     float maxVal = max(max(abs(m1), abs(m2)), abs(m3));
+//     if (maxVal > 1.0) {
+//       m1 /= maxVal;
+//       m2 /= maxVal;
+//       m3 /= maxVal;
+//     }
+
+//     // Appliquer la vitesse alpha
+//     int v1 = int(abs(m1) * alpha);
+//     int v2 = int(abs(m2) * alpha);
+//     int v3 = int(abs(m3) * alpha);
+
+//     // Déterminer les directions
+//     char d1 = m1 >= 0 ? 'F' : 'R';
+//     char d2 = m2 >= 0 ? 'F' : 'R';
+//     char d3 = m3 >= 0 ? 'F' : 'R';
+
+//     // Contrôle des moteurs
+//     mot1(v1, d1);
+//     mot2(v2, d2);
+//     mot3(v3, d3);
+
+//     Serial.print("M1 : ");
+//     Serial.print(v1);
+//     Serial.print(" ");
+//     Serial.println(d1);
+//     Serial.print(" M2 : ");
+//     Serial.print(v2);
+//     Serial.print(" ");
+//     Serial.println(d2);
+//     Serial.print(" M3 : ");
+//     Serial.print(v3);
+//     Serial.print(" ");
+//     Serial.println(d3);
+
+//     vTaskDelay(50);
+//   }
+// }
+
+
+// void PAMI::navigation(){
+//     xTaskCreatePinnedToCore(
+//         navigationTask,  // Tâche navigation
+//         "Navigation",
+//         2048,
+//         NULL,
+//         1,
+//         NULL,
+//         0 // cœur 0
+//     );
+// }
