@@ -1,0 +1,404 @@
+/* --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
+
+/*******************************************************************************
+ *
+ *  drv89xx.h - Declaration file for utility functions and global variables
+ *  DRV89xx_EVM_FIRMWARE
+ *  9/3/2018
+ *
+ ******************************************************************************/
+#include "../../dataTypeDefinition.h"
+
+/*******************************************************************************
+ * MACROs
+ *******************************************************************************/
+
+/*************************************************************
+ * DRV89xx SPI Register ADDRESS
+ *************************************************************/
+
+#define SPI_REG_IC_STAT                         (uint8_t)(0x00)         /* IC Status Register */
+#define SPI_REG_OCP_STAT_1                      (uint8_t)(0x01)         /* OCP Status 1 Register   */
+#define SPI_REG_OCP_STAT_2                      (uint8_t)(0x02)         /* OCP Status 2 Register  */
+#define SPI_REG_OCP_STAT_3                      (uint8_t)(0x03)         /* OCP Status 3 Register */
+#define SPI_REG_OLD_STAT_1                      (uint8_t)(0x04)         /* OLD Status 1 Register  */
+#define SPI_REG_OLD_STAT_2                      (uint8_t)(0x05)         /* OLD Status 2 Register  */
+#define SPI_REG_OLD_STAT_3                      (uint8_t)(0x06)         /* OLD Status 3 Register  */
+#define SPI_REG_CONFIG_CTRL                     (uint8_t)(0x07)         /* Configuration  Register  */
+#define SPI_REG_OP_CTRL_1                       (uint8_t)(0x08)         /* Operation Control 1 Register */
+#define SPI_REG_OP_CTRL_2                       (uint8_t)(0x09)         /* Operation Control 2 Register */
+#define SPI_REG_OP_CTRL_3                       (uint8_t)(0x0A)         /* Operation Control 3 Register */
+#define SPI_REG_PWM_CTRL_1                      (uint8_t)(0x0B)         /* PWM Control 1 Register */
+#define SPI_REG_PWM_CTRL_2                      (uint8_t)(0x0C)         /* PWM Control 2 Register */
+#define SPI_REG_FW_CTRL_1                       (uint8_t)(0x0D)         /* Free-Wheeling Control 1 Register */
+#define SPI_REG_FW_CTRL_2                       (uint8_t)(0x0E)         /* Free-Wheeling Control 2 Register */
+#define SPI_REG_PWM_MAP_CTRL_1                  (uint8_t)(0x0F)         /* PWM Map Control 1 Register */
+#define SPI_REG_PWM_MAP_CTRL_2                  (uint8_t)(0x10)         /* PWM Map Control 2 Register */
+#define SPI_REG_PWM_MAP_CTRL_3                  (uint8_t)(0x11)         /* PWM Map Control 3 Register */
+
+#define SPI_REG_PWM_FREQ_1_CTRL_12_10_1p1_1p0               (uint8_t)(0x12)         /* PWM frequency Register */
+#define SPI_REG_PWM_DUTY_CTRL_1_12_10_1p1_1p0                 (uint8_t)(0x13)         /* PWM duty - half-bridge Control 1 Register */
+#define SPI_REG_PWM_DUTY_CTRL_2_12_10_1p1_1p0                 (uint8_t)(0x14)         /* PWM duty - half-bridge Control 2 Register */
+#define SPI_REG_PWM_DUTY_CTRL_3_12_10_1p1_1p0                 (uint8_t)(0x15)         /* PWM duty - half-bridge Control 3 Register */
+#define SPI_REG_PWM_DUTY_CTRL_4_12_10_1p1_1p0                (uint8_t)(0x16)         /* PWM duty - half-bridge Control 4 Register */
+#define SPI_REG_SR_CTRL_1_12_10_1p1_1p0                       (uint8_t)(0x17)         /* Slew Rate Control 1 Register */
+#define SPI_REG_SR_CTRL_2_12_10_1p1_1p0                      (uint8_t)(0x18)         /* Slew Rate Control 2 Register */
+#define SPI_REG_OLD_CTRL_1_12_10_1p1_1p0                      (uint8_t)(0x19)         /* OLD Control 1 Register */
+#define SPI_REG_OLD_CTRL_2_12_10_1p1_1p0                      (uint8_t)(0x1A)         /* OLD Control 2 Register */
+#define SPI_REG_OLD_CTRL_3_12_10_1p1_1p0                      (uint8_t)(0x1B)         /* OLD Control 3 Register */
+#define SPI_REG_OLD_CTRL_4_12_10_1p1_1p0                     (uint8_t)(0x24)         /* OLD Control 4 Register */
+
+#define SPI_REG_PWM_MAP_CTRL_4_08_06_04_1p0         (uint8_t)(0x12)
+#define SPI_REG_PWM_FREQ_CTRL_1_08_06_04_1p0        (uint8_t)(0x13)
+#define SPI_REG_PWM_FREQ_CTRL_2_08_06_04_1p0        (uint8_t)(0x14)
+#define SPI_REG_PWM_DUTY_CTRL_1_08_06_04_1p0        (uint8_t)(0x15)
+#define SPI_REG_PWM_DUTY_CTRL_2_08_06_04_1p0        (uint8_t)(0x16)
+#define SPI_REG_PWM_DUTY_CTRL_3_08_06_04_1p0        (uint8_t)(0x17)
+#define SPI_REG_PWM_DUTY_CTRL_4_08_06_04_1p0        (uint8_t)(0x18)
+#define SPI_REG_PWM_DUTY_CTRL_5_08_06_04_1p0        (uint8_t)(0x19)
+#define SPI_REG_PWM_DUTY_CTRL_6_08_06_04_1p0        (uint8_t)(0x1A)
+#define SPI_REG_PWM_DUTY_CTRL_7_08_06_04_1p0        (uint8_t)(0x1B)
+#define SPI_REG_PWM_DUTY_CTRL_8_08_06_04_1p0        (uint8_t)(0x1C)
+#define SPI_REG_SR_CTRL_1_08_06_04_1p0              (uint8_t)(0x1D)
+#define SPI_REG_SR_CTRL_2_08_06_04_1p0              (uint8_t)(0x1E)
+#define SPI_REG_OLD_CTRL_1_08_06_04_1p0             (uint8_t)(0x1F)
+#define SPI_REG_OLD_CTRL_2_08_06_04_1p0             (uint8_t)(0x20)
+#define SPI_REG_OLD_CTRL_3_08_06_04_1p0             (uint8_t)(0x21)
+#define SPI_REG_OLD_CTRL_4_08_06_04_1p0             (uint8_t)(0x22)
+#define SPI_REG_OLD_CTRL_5_08_06_04_1p0             (uint8_t)(0x23)
+#define SPI_REG_OLD_CTRL_6_08_06_04_1p0             (uint8_t)(0x24)
+
+///* Mask for Register Bit Definitions */
+//
+///* SPI_REG_00 : IC Status Register */
+//#define NPOR_MASK        (0x01)         /*Indicates an open load detection*/
+//#define OVP_MASK         (0x02)         /*Indicates an overtemperature shutdown*/
+//#define UVLO_MASK        (0x04)         /*Indicates an overcurrent condition*/
+//#define OCP_MASK         (0x08)         /*Indicates charge pump undervoltage fault condition*/
+//#define OLD_MASK         (0x10)         /*Indicates undervoltage lockout fault condition*/
+//#define OTW_MASK         (0x20)         /*Indicated overtemperature warning*/
+//#define OTSD_MASK        (0x40)         /*Logic OR of the FAULT status register. Compliments the nFAULT pin*/
+//#define RSVD_MASK        (0x80)         /*Reserved*/
+//
+///* SPI_REG_01 : OCP Status 1 Register */
+//#define HB1_LS_OCP_MASK       (0x01)        /*Indicates overcurrent fault on the low-side FET of half bridge 1 */
+//#define HB1_HS_OCP_MASK       (0x02)        /*Indicates overcurrent fault on the high-side FET of half bridge 1*/
+//#define HB2_LS_OCP_MASK       (0x04)        /*Indicates overcurrent fault on the low-side FET of half bridge 2 */
+//#define HB2_HS_OCP_MASK       (0x08)        /*Indicates overcurrent fault on the high-side FET of half bridge 2*/
+//#define HB3_LS_OCP_MASK       (0x10)        /*Indicates overcurrent fault on the low-side FET of half bridge 3 */
+//#define HB3_HS_OCP_MASK       (0x20)        /*Indicates overcurrent fault on the high-side FET of half bridge 3*/
+//#define HB4_LS_OCP_MASK       (0x40)        /*Indicates overcurrent fault on the low-side FET of half bridge 4 */
+//#define HB4_HS_OCP_MASK       (0x80)        /*Indicates overcurrent fault on the high-side FET of half bridge 4*/
+//
+///* SPI_REG_02 : OCP Status 2 Register */
+//#define HB5_LS_OCP_MASK       (0x01)        /*Indicates overcurrent fault on the low-side FET of half bridge 5 */
+//#define HB5_HS_OCP_MASK       (0x02)        /*Indicates overcurrent fault on the high-side FET of half bridge 5*/
+//#define HB6_LS_OCP_MASK       (0x04)        /*Indicates overcurrent fault on the low-side FET of half bridge 6 */
+//#define HB6_HS_OCP_MASK       (0x08)        /*Indicates overcurrent fault on the high-side FET of half bridge 6*/
+//#define HB7_LS_OCP_MASK       (0x10)        /*Indicates overcurrent fault on the low-side FET of half bridge 7 */
+//#define HB7_HS_OCP_MASK       (0x20)        /*Indicates overcurrent fault on the high-side FET of half bridge 7*/
+//#define HB8_LS_OCP_MASK       (0x40)        /*Indicates overcurrent fault on the low-side FET of half bridge 8 */
+//#define HB8_HS_OCP_MASK       (0x80)        /*Indicates overcurrent fault on the high-side FET of half bridge 8*/
+//
+///* SPI_REG_03 : OCP Status 3 Register */
+//#define HB9_LS_OCP_MASK       (0x01)        /*Indicates overcurrent fault on the low-side FET of half bridge 9 */
+//#define HB9_HS_OCP_MASK       (0x02)        /*Indicates overcurrent fault on the high-side FET of half bridge 9*/
+//#define HB10_LS_OCP_MASK       (0x04)        /*Indicates overcurrent fault on the low-side FET of half bridge 10 */
+//#define HB10_HS_OCP_MASK       (0x08)        /*Indicates overcurrent fault on the high-side FET of half bridge 10*/
+//#define HB11_LS_OCP_MASK       (0x10)        /*Indicates overcurrent fault on the low-side FET of half bridge 11 */
+//#define HB11_HS_OCP_MASK       (0x20)        /*Indicates overcurrent fault on the high-side FET of half bridge 11*/
+//#define HB12_LS_OCP_MASK       (0x40)        /*Indicates overcurrent fault on the low-side FET of half bridge 12 */
+//#define HB12_HS_OCP_MASK       (0x80)        /*Indicates overcurrent fault on the high-side FET of half bridge 12*/
+//
+///* SPI_REG_04 : OLD Status 1 Register */
+//#define HB1_LS_OLD_MASK       (0x01)        /*Indicates open load detection on the low-side FET of half bridge 1 */
+//#define HB1_HS_OLD_MASK       (0x02)        /*Indicates open load detection fault on the high-side FET of half bridge 1*/
+//#define HB2_LS_OLD_MASK       (0x04)        /*Indicates open load detection fault on the low-side FET of half bridge 2 */
+//#define HB2_HS_OLD_MASK       (0x08)        /*Indicates open load detection fault on the high-side FET of half bridge 2*/
+//#define HB3_LS_OLD_MASK       (0x10)        /*Indicates open load detection fault on the low-side FET of half bridge 3 */
+//#define HB3_HS_OLD_MASK       (0x20)        /*Indicates open load detection fault on the high-side FET of half bridge 3*/
+//#define HB4_LS_OLD_MASK       (0x40)        /*Indicates open load detection fault on the low-side FET of half bridge 4 */
+//#define HB4_HS_OLD_MASK       (0x80)        /*Indicates open load detection fault on the high-side FET of half bridge 4*/
+//
+///* SPI_REG_05 : OLD Status 2 Register */
+//#define HB5_LS_OLD_MASK       (0x01)        /*Indicates open load detection fault on the low-side FET of half bridge 5 */
+//#define HB5_HS_OLD_MASK       (0x02)        /*Indicates open load detection fault on the high-side FET of half bridge 5*/
+//#define HB6_LS_OLD_MASK       (0x04)        /*Indicates open load detection fault on the low-side FET of half bridge 6 */
+//#define HB6_HS_OLD_MASK       (0x08)        /*Indicates open load detection fault on the high-side FET of half bridge 6*/
+//#define HB7_LS_OLD_MASK       (0x10)        /*Indicates open load detection fault on the low-side FET of half bridge 7 */
+//#define HB7_HS_OLD_MASK       (0x20)        /*Indicates open load detection fault on the high-side FET of half bridge 7*/
+//#define HB8_LS_OLD_MASK       (0x40)        /*Indicates open load detection fault on the low-side FET of half bridge 8 */
+//#define HB8_HS_OLD_MASK       (0x80)        /*Indicates open load detection fault on the high-side FET of half bridge 8*/
+//
+///* SPI_REG_06 : OLD Status 3 Register */
+//#define HB9_LS_OLD_MASK       (0x01)        /*Indicates open load detection fault on the low-side FET of half bridge 9 */
+//#define HB9_HS_OLD_MASK       (0x02)        /*Indicates open load detection fault on the high-side FET of half bridge 9*/
+//#define HB10_LS_OLD_MASK       (0x04)        /*Indicates open load detection fault on the low-side FET of half bridge 10 */
+//#define HB10_HS_OLD_MASK       (0x08)        /*Indicates open load detection fault on the high-side FET of half bridge 10*/
+//#define HB11_LS_OLD_MASK       (0x10)        /*Indicates open load detection fault on the low-side FET of half bridge 11 */
+//#define HB11_HS_OLD_MASK       (0x20)        /*Indicates open load detection fault on the high-side FET of half bridge 11*/
+//#define HB12_LS_OLD_MASK       (0x40)        /*Indicates open load detection fault on the low-side FET of half bridge 12 */
+//#define HB12_HS_OLD_MASK       (0x80)        /*Indicates open load detection fault on the high-side FET of half bridge 12*/
+//
+///* SPI_REG_07 : Config Control Register */
+#define CLR_FLT_MASK       (0x01)        /* Clear all faults */
+//#define EXT_OVP_MASK       (0x02)        /* Indicates Overvoltage protection threshold is at 21 V if 0 and 33V if 1*/
+//#define OTW_REP__MASK      (0x04)        /* Indicates Overtemperature warning on nFAULT pin */
+//#define OCP_REP_MASK       (0x08)        /* Indicates Overcurrent warning on nFAULT pin */
+//#define IC_ID_MASK         (0x70)        /* Number of Channels in the Device */
+///*IC ID bits */
+//#define IC_ID_12_CH         (0x00)      /* DRV8912_Q1 (12 Channels) */
+//#define IC_ID_10_CH         (0x01)      /* DRV8912_Q1 (12 Channels) */
+//#define IC_ID_8_CH          (0x02)      /* DRV8912_Q1 (12 Channels) */
+//#define IC_ID_6_CH          (0x03)      /* DRV8912_Q1 (12 Channels) */
+//#define IC_ID_4_CH          (0x04)      /* DRV8912_Q1 (12 Channels) */
+//
+//#define RSVD_MASK          (0x80)        /* Reserved */
+//
+///* SPI_REG_08 : Operation Control 1 Register */
+//#define HB1_LS_EN_MASK       (0x01)        /* Indicates Enabling of the low-side FET of half bridge 1 */
+//#define HB1_HS_EN_MASK       (0x02)        /* Indicates Enabling of the high-side FET of half bridge 1*/
+//#define HB2_LS_EN_MASK       (0x04)        /* Indicates Enabling of the low-side FET of half bridge 2 */
+//#define HB2_HS_EN_MASK       (0x08)        /* Indicates Enabling of the high-side FET of half bridge 2*/
+//#define HB3_LS_EN_MASK       (0x10)        /* Indicates Enabling of the low-side FET of half bridge 3 */
+//#define HB3_HS_EN_MASK       (0x20)        /* Indicates Enabling of the high-side FET of half bridge 3*/
+//#define HB4_LS_EN_MASK       (0x40)        /* Indicates Enabling of the low-side FET of half bridge 4 */
+//#define HB4_HS_EN_MASK       (0x80)        /* Indicates Enabling of the high-side FET of half bridge 4*/
+//
+///* SPI_REG_09 : Operation Control 2 Register */
+//#define HB5_LS_EN_MASK       (0x01)        /* Indicates Enabling of the low-side FET of half bridge 5 */
+//#define HB5_HS_EN_MASK       (0x02)        /* Indicates Enabling of the high-side FET of half bridge 5*/
+//#define HB6_LS_EN_MASK       (0x04)        /* Indicates Enabling of the low-side FET of half bridge 6 */
+//#define HB6_HS_EN_MASK       (0x08)        /* Indicates Enabling of the high-side FET of half bridge 6*/
+//#define HB7_LS_EN_MASK       (0x10)        /* Indicates Enabling of the low-side FET of half bridge 7 */
+//#define HB7_HS_EN_MASK       (0x20)        /* Indicates Enabling of the high-side FET of half bridge 7*/
+//#define HB8_LS_EN_MASK       (0x40)        /* Indicates Enabling of the low-side FET of half bridge 8 */
+//#define HB8_HS_EN_MASK       (0x80)        /* Indicates Enabling of the high-side FET of half bridge 8*/
+//
+///* SPI_REG_0A : Operation Control 3 Register */
+//#define HB9_LS_EN_MASK       (0x01)        /* Indicates Enabling of the low-side FET of half bridge 9 */
+//#define HB9_HS_EN_MASK       (0x02)        /* Indicates Enabling of the high-side FET of half bridge 9*/
+//#define HB10_LS_EN_MASK      (0x04)       /* Indicates Enabling of the low-side FET of half bridge 10 */
+//#define HB10_HS_EN_MASK      (0x08)       /* Indicates Enabling of the high-side FET of half bridge 10*/
+//#define HB11_LS_EN_MASK      (0x10)       /* Indicates Enabling of the low-side FET of half bridge 11 */
+//#define HB11_HS_EN_MASK      (0x20)       /* Indicates Enabling of the high-side FET of half bridge 11*/
+//#define HB12_LS_EN_MASK      (0x40)       /* Indicates Enabling of the low-side FET of half bridge 12 */
+//#define HB12_HS_EN_MASK      (0x80)       /* Indicates Enabling of the high-side FET of half bridge 12*/
+//
+///* SPI_REG_0B : PWM Control 1 Register */
+//#define HB1_PWM_MASK       (0x01)        /* Indicates operating mode (Contionous/PWM) of half bridge 1 */
+//#define HB2_PWM_MASK       (0x02)        /* Indicates operating mode (Contionous/PWM) of half bridge 2*/
+//#define HB3_PWM_MASK       (0x04)        /* Indicates operating mode (Contionous/PWM) of half bridge 3 */
+//#define HB4_PWM_MASK       (0x08)        /* Indicates operating mode (Contionous/PWM) of half bridge 4*/
+//#define HB5_PWM_MASK       (0x10)        /* Indicates operating mode (Contionous/PWM) of half bridge 5 */
+//#define HB6_PWM_MASK       (0x20)        /* Indicates operating mode (Contionous/PWM) of half bridge 6*/
+//#define HB7_PWM_MASK       (0x40)        /* Indicates operating mode (Contionous/PWM) of half bridge 7 */
+//#define HB8_PWM_MASK       (0x80)        /* Indicates operating mode (Contionous/PWM) of half bridge 8*/
+//
+///* SPI_REG_0C : PWM Control 2 Register */
+//#define HB9_PWM_MASK       (0x01)        /* Indicates operating mode (Contionous/PWM) of half bridge 9 */
+//#define HB10_PWM_MASK      (0x02)        /* Indicates operating mode (Contionous/PWM) of half bridge 10 */
+//#define HB11_PWM_MASK      (0x04)        /* Indicates operating mode (Contionous/PWM) of half bridge 11 */
+//#define HB12_PWM_MASK      (0x08)        /* Indicates operating mode (Contionous/PWM) of half bridge 12 */
+//#define PWM_CH1_DIS_MASK   (0x10)        /* Indicates Enabling of PWM generator 1 */
+//#define PWM_CH2_DIS_MASK   (0x20)        /* Indicates Enabling of PWM generator 2 */
+//#define PWM_CH3_DIS_MASK   (0x40)        /* Indicates Enabling of PWM generator 3 */
+//#define PWM_CH4_DIS_MASK   (0x80)        /* Indicates Enabling of PWM generator 4 */
+//
+///* SPI_REG_0D : Free-Wheeling Control 1 Register */
+//#define HB1_FW_MASK       (0x01)        /* Indicates free-wheeling on half bridge 1 */
+//#define HB2_FW_MASK       (0x02)        /* Indicates free-wheeling on half bridge 2*/
+//#define HB3_FW_MASK       (0x04)        /* Indicates free-wheeling on half bridge 3 */
+//#define HB4_FW_MASK       (0x08)        /* Indicates free-wheeling on half bridge 4*/
+//#define HB5_FW_MASK       (0x10)        /* Indicates free-wheeling on half bridge 5 */
+//#define HB6_FW_MASK       (0x20)        /* Indicates free-wheeling on half bridge 6*/
+//#define HB7_FW_MASK       (0x40)        /* Indicates free-wheeling on half bridge 7 */
+//#define HB8_FW_MASK       (0x80)        /* Indicates free-wheeling on half bridge 8*/
+//
+///* SPI_REG_0E : Free-Wheeling Control 2 Register */
+//#define HB9_FW_MASK       (0x01)        /* Indicates free-wheeling on half bridge 9 */
+//#define HB10_FW_MASK      (0x02)        /* Indicates free-wheeling on half bridge 10 */
+//#define HB11_FW_MASK      (0x04)        /* Indicates free-wheeling on half bridge 11 */
+//#define HB12_FW_MASK      (0x08)        /* Indicates free-wheeling onhalf bridge 12 */
+//#define RSVD_MASK_0E         (0xF0)        /* Reserved */
+//
+///* SPI_REG_0F : PWM Map Control 1 Register */
+//#define HB1_PWM_MAP_MASK     (0x03)        /* Indicates mapping of half bridge 1 to PWM channel 1/2/3/4  */
+//#define HB2_PWM_MAP_MASK     (0x0C)        /* Indicates mapping of half bridge 2 to PWM channel 1/2/3/4 */
+//#define HB3_PWM_MAP_MASK     (0x30)        /* Indicates mapping of half bridge 3 to PWM channel 1/2/3/4 */
+//#define HB4_PWM_MAP_MASK     (0xC0)        /* Indicates mapping of half bridge 4 to PWM channel 1/2/3/4*/
+//
+///* SPI_REG_10 : PWM Map Control 2 Register */
+//#define HB5_PWM_MAP_MASK     (0x03)        /* Indicates mapping of half bridge 5 to PWM channel 1/2/3/4 */
+//#define HB6_PWM_MAP_MASK     (0x0C)        /* Indicates mapping of half bridge 6 to PWM channel 1/2/3/4 */
+//#define HB7_PWM_MAP_MASK     (0x30)        /* Indicates mapping of half bridge 7 to PWM channel 1/2/3/4 */
+//#define HB8_PWM_MAP_MASK     (0xC0)        /* Indicates mapping of half bridge 8 to PWM channel 1/2/3/4 */
+//
+///* SPI_REG_11 : PWM Map Control 3 Register */
+//#define HB9_PWM_MAP_MASK      (0x03)        /* Indicates mapping of half bridge 9 to PWM channel 1/2/3/4 */
+//#define HB10_PWM_MAP_MASK     (0x0C)        /* Indicates mapping of half bridge 10 to PWM channel 1/2/3/4 */
+//#define HB11_PWM_MAP_MASK     (0x30)        /* Indicates mapping of half bridge 11 to PWM channel 1/2/3/4 */
+//#define HB12_PWM_MAP_MASK     (0xC0)        /* Indicates mapping of half bridge 12 to PWM channel 1/2/3/4 */
+//
+///* Half Bridge Maping to PWM channel*/
+//#define HBx_PWM_MAP_CH1        (0x00)       /* Indicates Half Bridge Mapping to PWM Channel*/
+//#define HBx_PWM_MAP_CH2        (0x01)       /* Indicates Half Bridge Mapping to PWM Channel*/
+//#define HBx_PWM_MAP_CH3        (0x02)       /* Indicates Half Bridge Mapping to PWM Channel*/
+//#define HBx_PWM_MAP_CH4        (0x03)       /* Indicates Half Bridge Mapping to PWM Channel*/
+//
+///* SPI_REG_12 : PWM Frequency Control Register */
+//#define PWM_CH1_FREQ_MASK     (0x03)        /* Indicates PWM frequency of channel 1 */
+//#define PWM_CH2_FREQ_MASK     (0x0C)        /* Indicates PWM frequency of channel 2 */
+//#define PWM_CH3_FREQ_MASK     (0x30)        /* Indicates PWM frequency of channel 3 */
+//#define PWM_CH4_FREQ_MASK     (0xC0)        /* Indicates PWM frequency of channel 4 */
+//
+///*PWM Frequency for Channel 1 */
+//#define PWM_CH_FREQ_80         (0x00)       /* PWM frequency is 80 Hz*/
+//#define PWM_CH_FREQ_100         (0x00)      /* PWM frequency is 100 Hz*/
+//#define PWM_CH_FREQ_200         (0x00)      /* PWM frequency is 200 Hz*/
+//#define PWM_CH_FREQ_2000         (0x00)     /* PWM frequency is 2000 Hz*/
+//
+///* SPI_REG_13 : PWM Duty Control 1 Register */
+//#define PWM_DUTY_CH1_MASK      (0xFF)        /* Indicates mapping of half bridge 9 to PWM channel 1/2/3/4 */
+//
+///* SPI_REG_14 : PWM Duty Control 2 Register */
+//#define PWM_DUTY_CH2_MASK      (0xFF)        /* Indicates mapping of half bridge 9 to PWM channel 1/2/3/4 */
+//
+///* SPI_REG_15 : PWM Duty Control 3 Register */
+//#define PWM_DUTY_CH3_MASK      (0xFF)        /* Indicates mapping of half bridge 9 to PWM channel 1/2/3/4 */
+//
+///* SPI_REG_16 : PWM Duty Control 4 Register */
+//#define PWM_DUTY_CH4_MASK      (0xFF)        /* Indicates mapping of half bridge 9 to PWM channel 1/2/3/4 */
+//
+///* SPI_REG_17 : Slew Rate Control 1 Register */
+//#define HB1_SR_MASK       (0x01)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 1 */
+//#define HB2_SR_MASK       (0x02)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 2*/
+//#define HB3_SR_MASK       (0x04)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 3 */
+//#define HB4_SR_MASK       (0x08)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 4*/
+//#define HB5_SR_MASK       (0x10)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 5 */
+//#define HB6_SR_MASK       (0x20)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 6*/
+//#define HB7_SR_MASK       (0x40)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 7 */
+//#define HB8_SR_MASK       (0x80)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 8*/
+//
+///* SPI_REG_18 : Slew Rate Control 2 Register */
+//#define HB9_SR_MASK       (0x01)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 9 */
+//#define HB10_SR_MASK      (0x02)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 10 */
+//#define HB11_SR_MASK      (0x04)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 11 */
+//#define HB12_SR_MASK      (0x08)        /* Indicates Slew rate as 0.5/1.5 V/us on half bridge 12 */
+//#define RSVD_MASK_18         (0xF0)        /* Reserved */
+//
+///* SPI_REG_19 : Open Load Detection (OLD) Control 1 Register */
+//#define HB1_OLD_DIS_MASK       (0x01)        /* Indicates Enabling of Open load detection on half bridge 1 */
+//#define HB2_OLD_DIS_MASK       (0x02)        /* Indicates Enabling of Open load detection on half bridge 2*/
+//#define HB3_OLD_DIS_MASK       (0x04)        /* Indicates Enabling of Open load detection on half bridge 3 */
+//#define HB4_OLD_DIS_MASK       (0x08)        /* Indicates Enabling of Open load detection on half bridge 4*/
+//#define HB5_OLD_DIS_MASK       (0x10)        /* Indicates Enabling of Open load detection on half bridge 5 */
+//#define HB6_OLD_DIS_MASK       (0x20)        /* Indicates Enabling of Open load detection on half bridge 6*/
+//#define HB7_OLD_DIS_MASK       (0x40)        /* Indicates Enabling of Open load detection on half bridge 7 */
+//#define HB8_OLD_DIS_MASK       (0x80)        /* Indicates Enabling of Open load detection on half bridge 8*/
+//
+///* SPI_REG_1A : Open Load Detection (OLD) Control 2 Register */
+//#define HB9_OLD_DIS_MASK       (0x01)        /* Indicates Enabling of Open load detection on half bridge 9 */
+//#define HB10_OLD_DIS_MASK      (0x02)        /* Indicates Enabling of Open load detection on half bridge 10 */
+//#define HB11_OLD_DIS_MASK      (0x04)        /* Indicates Enabling of Open load detection on half bridge 11 */
+//#define HB12_OLD_DIS_MASK      (0x08)        /* Indicates Enabling of Open load detection onhalf bridge 12 */
+//#define RSVD_MASK_1A              (0x30)        /* Reserved */
+//#define OLD_OP_MASK            (0x40)        /* Indicates Half bridges active after OLD condition detect */
+//#define OLD_REP_MASK           (0x80)        /* Indicates on nFAULT pin during OLD condition*/
+//
+///* SPI_REG_1B : over current protection (OCP) Register */
+//#define RSVD_MASK_1B           (0x1F)        /* Indicates Enabling of Open load detection on half bridge 9 */
+//#define OCP_DEG_MASK        (0xE0)        /* Indicates Enabling of Open load detection on half bridge 10 */
+///* OCP Deglitch Bits*/
+//#define OCP_DEG_10_us       (0x00)      /* OCP deglich time is 10 us*/
+//#define OCP_DEG_5_us       (0x00)       /* OCP deglich time is 10 us*/
+//#define OCP_DEG_2p5_us       (0x00)     /* OCP deglich time is 10 us*/
+//#define OCP_DEG_1_us       (0x00)       /* OCP deglich time is 10 us*/
+//#define OCP_DEG_60_us       (0x00)      /* OCP deglich time is 10 us*/
+//#define OCP_DEG_40_us       (0x00)      /* OCP deglich time is 10 us*/
+//#define OCP_DEG_30_us       (0x00)      /* OCP deglich time is 10 us*/
+//#define OCP_DEG_20_us       (0x00)      /* OCP deglich time is 10 us*/
+
+/*******************************************************************************
+ * Structure
+ *******************************************************************************/
+
+/**
+ *  Structure initializing the DRV89xx Register.
+ */
+typedef struct DRV89xx_REG
+{
+    /*Status and Control registers mapped to DRV89xx_Q1 SPI registers*/
+    /*Status registers*/
+    uint8_t ic_stat_reg; /* IC Status Register, Address = 0x00h*/
+    uint8_t ocp_stat1_reg; /* OCP Status 1 Register, Address = 0x01h*/
+    uint8_t ocp_stat2_reg; /* OCP Status 2 Register, Address = 0x02h*/
+    uint8_t ocp_stat3_reg; /* OCP Status 3 Register, Address = 0x03h*/
+    uint8_t old_stat1_reg; /* OLD Status 1 Register, Address = 0x04h*/
+    uint8_t old_stat2_reg; /* OLD Status 2 Register, Address = 0x05h*/
+    uint8_t old_stat3_reg; /* OLD Status 3 Register, Address = 0x06h*/
+
+    /*Control registers*/
+    uint8_t config_ctrl_reg;
+    uint8_t op_ctrl_1_reg;
+    uint8_t op_ctrl_2_reg;
+    uint8_t op_ctrl_3_reg;
+    uint8_t pwm_ctrl_1_reg;
+    uint8_t pwm_ctrl_2_reg;
+    uint8_t fw_ctrl_1_reg;
+    uint8_t fw_ctrl_2_reg;
+    uint8_t pwm_map_ctrl_1_reg;
+    uint8_t pwm_map_ctrl_2_reg;
+    uint8_t pwm_map_ctrl_3_reg;
+    uint8_t pwm_freq_ctrl_reg;
+    uint8_t pwm_duty_ctrl_1_reg;
+    uint8_t pwm_duty_ctrl_2_reg;
+    uint8_t pwm_duty_ctrl_3_reg;
+    uint8_t pwm_duty_ctrl_4_reg;
+    uint8_t sr_ctrl_1_reg;
+    uint8_t sr_ctrl_2_reg;
+    uint8_t old_ctrl_1_reg;
+    uint8_t old_ctrl_2_reg;
+    uint8_t ocp_ctrl_reg;
+    uint8_t pwm_map_ctrl_4_reg;
+    uint8_t pwm_freq_ctrl_2_reg;
+    uint8_t pwm_duty_ctrl_5_reg;
+    uint8_t pwm_duty_ctrl_6_reg;
+    uint8_t pwm_duty_ctrl_7_reg;
+    uint8_t pwm_duty_ctrl_8_reg;
+    uint8_t old_ctrl_4_reg;
+    uint8_t old_ctrl_5_reg;
+    uint8_t old_ctrl_6_reg;
+
+} DRV89xx_Q1_REG_t;
+

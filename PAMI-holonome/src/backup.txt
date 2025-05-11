@@ -1,0 +1,185 @@
+#include "pami.hpp"
+#include <Adafruit_NeoPixel.h>
+#include "Adafruit_VL53L0X.h"
+#include "io.hpp"
+#include "main.hpp"
+#include "music.hpp"
+#include "BluetoothSerial.h"
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+BluetoothSerial SerialBT;
+
+Adafruit_NeoPixel strip(NUM_LEDS, LED, NEO_GRB + NEO_KHZ800);
+
+Adafruit_VL53L0X tof1 = Adafruit_VL53L0X();
+
+
+void bluetoothInterface(void *pvParameters);
+
+PAMI::PAMI(){
+    pinMode(BUZZER, OUTPUT);
+
+    strip.begin();
+    strip.clear();
+    tof1.begin();
+
+    xTaskCreate(
+        bluetoothInterface,  // Tâche Bluetooth
+        "Bluetooth",
+        4096,
+        NULL,
+        1,
+        NULL
+    );
+}
+
+float alpha = 1; // Coefficient d'atténuation pour la luminosité des LEDs
+
+void bluetoothInterface(void *pvParameters) {
+    // Initialisation de la communication série
+    SerialBT.begin("PAMIH");
+    SerialBT.println("Initialisation de la communication série...");
+    SerialBT.println("Prêt !");
+
+    while (true) {
+        if(SerialBT.available()) {
+            String command = SerialBT.readStringUntil('\n');
+            Serial.println(command);
+            alpha = command.toFloat();
+        }
+        vTaskDelay(10 / portTICK_PERIOD_MS); // Délai pour éviter une boucle trop rapide
+    }
+}
+
+// === Tâche 2 : Animation LED fluide ===
+void animateLedsTask(void *pvParameters) {
+    strip.show();
+  
+    int hue = 0;
+  
+    while (true) {
+      for (int i = 0; i < NUM_LEDS; i++) {
+        int a = alpha * map(analogRead(POT), 0, 4095, 0, 255);
+        strip.setPixelColor(i, strip.ColorHSV(hue, 255, a*a/255));
+      }
+      strip.show();
+      hue += 256; // petit pas de teinte
+      if (hue >= 65536) hue = 0;
+      vTaskDelay(30 / portTICK_PERIOD_MS); // délai fluide
+    }
+  }
+
+  unsigned char PAMI::readPot(){
+    return map(analogRead(POT), 0, 4095, 0, 255);
+  }
+
+  void PAMI::animateLeds(){
+    xTaskCreate(
+        animateLedsTask,      // Tâche LEDs
+        "LEDs",
+        2048,
+        NULL,
+        1,
+        NULL
+    );
+}
+
+// === Fonction utilitaire pour générer des ondes carrées ===
+void playTone(int freq, int duration) {
+    long period = 1000000L / freq;
+    long cycles = (duration * 1000L) / period;
+  
+    for (long i = 0; i < cycles; i++) {
+      digitalWrite(BUZZER, HIGH);
+      delayMicroseconds(period / 2);
+      digitalWrite(BUZZER, LOW);
+      delayMicroseconds(period / 2);
+    }
+  }
+  
+  // === Tâche 1 : Lecture de musique ===
+  void playMelodyTask(void *pvParameters) {
+    pinMode(BUZZER, OUTPUT);
+  
+    // there are two values per note (pitch and duration), so for each note there are four bytes
+    int notes=sizeof(melody)/sizeof(melody[0])/2; 
+    // this calculates the duration of a whole note in ms (60s/tempo)*4 beats
+    int wholenote = (60000 * 4) / tempo;
+    int divider = 0, noteDuration = 0;
+  
+    while (true) {
+      while(!digitalRead(BUT1)); // Attendre que le bouton soit pressé
+      while(digitalRead(BUT1)); // Attendre que le bouton soit relâché
+  
+      for (int thisNote = 0; thisNote < notes * 2; thisNote = thisNote + 2) {
+        
+        if(digitalRead(BUT1)) {
+          while(digitalRead(BUT1)); // Attendre que le bouton soit relâché
+          break; // Sortir de la boucle si le bouton est relâché
+        }
+  
+        // calculates the duration of each note
+        divider = melody[thisNote + 1];
+        if (divider > 0) {
+          // regular note, just proceed
+          noteDuration = (wholenote) / divider;
+        } else if (divider < 0) {
+          // dotted notes are represented with negative durations!!
+          noteDuration = (wholenote) / abs(divider);
+          noteDuration *= 1.5; // increases the duration in half for dotted notes
+        }
+    
+        // we only play the note for 90% of the duration, leaving 10% as a pause
+        playTone(melody[thisNote], noteDuration*0.9);
+    
+        // Wait for the specief duration before playing the next note.
+        vTaskDelay(noteDuration);
+        
+        // stop the waveform generation before the next note.
+        // noTone(BUZZER_PIN);
+      }
+    }
+  }
+
+void PAMI::playMelody(){
+    xTaskCreatePinnedToCore(
+        playMelodyTask,       // Tâche musique
+        "Musique",
+        2048,
+        NULL,
+        1,
+        NULL,
+        0 // cœur 0
+    );
+}
+
+void PAMI::ledColor(int hue, int lednum, int brightness){
+    strip.setPixelColor(lednum, strip.ColorHSV(hue, 255, brightness));
+    strip.show();
+}
+
+void PAMI::ledColorRGB(int r, int g, int b, int lednum, int brightness){
+    strip.setPixelColor(lednum, strip.Color(r, g, b));
+    strip.show();
+}
+
+int PAMI::readTof(char tofnum){
+  VL53L0X_RangingMeasurementData_t measure;
+
+  switch (tofnum) {
+      case 1:
+        tof1.rangingTest(&measure, false);
+        break;
+
+      case 2:
+        break;
+
+      case 3:
+        break;
+
+      default:
+        break;
+  }
+  return measure.RangeMilliMeter;
+}
