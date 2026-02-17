@@ -1,0 +1,281 @@
+/* --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
+
+/*******************************************************************************
+ *
+ *  DRV89xxx-q1.h - Declaration file for utility functions and global variables
+ *  DRV89xxX-Q1EVM_FIRMWARE
+ *  1/7/2016
+ *
+ ******************************************************************************/
+#ifndef drv89xxq1_H_
+#define drv89xxq1_H_
+
+/******************************************************************************
+ * HEADER FILES
+ *****************************************************************************/
+#include "../../drv89xx/include/drv89xx-RegMap.h"
+#include "msp430.h"
+
+/******************************************************************************
+ * MACROS
+ *****************************************************************************/
+
+/*
+ * GPIO Port 1 Definitions
+ */
+#define TX                 BIT1         /**<P1.1: UART Transmit pin*/
+#define RX                 BIT2         /**<P1.2: UART Receive pin*/
+#define PUSH               BIT3         /**<P1.3*/
+#define SCLK               BIT5         /**<Pin-5,P1.5: Serial clock*/
+#define SDO                BIT6         /**<Pin-3,P1.6: Serial data output*/
+#define SDI                BIT7         /**<Pin-4,P1.7: Serial data input*/
+
+/*
+ * GPIO Port 2 Definitions
+ */
+#define nSCS               BIT0         /**<Pin-0,P2.0  ----:Disable Open Load diagnostic*/
+#define nFAULT             BIT3         /**<P2.3: Fault indication pin*/
+#define nSLEEP		       BIT4         /**<P2.4: Sleep input*/
+#define STATUS		       BIT7         /**<P2.7*/
+#define DISABLE            BIT6         /**<P2.6: Bridge disable input*/
+
+
+
+/*SPI Protocol*/
+#define SPI_BUSY_FLAG      0x01         /**<User define flag to check SPI busy status*/
+
+#define SPI_ADDRESS_MASK   0x3F00       /**< Mask for SPI register address bit */
+#define SPI_ADDRESS_POS    8           /**< Position for SPI register address bit */
+#define SPI_DATA_MASK      0x00FF       /**< Mask for SPI register data bit */
+#define SPI_DATA_POS       0x0          /**< Position for SPI register data bit */
+#define SPI_RW_BIT_MASK    0x4000       /**< Mask for SPI register read write indication bit */
+
+/*Firmware version*/
+#define FW_VERSION   1.1
+
+/* Enable nsleEP*/
+#define set_nSLEEP_hi            P2OUT |= nSLEEP;
+#define set_nSLEEP_lo            P2OUT &= ~nSLEEP;
+
+#define read_FAULT_pin           (P2IN & nFAULT)
+
+
+/******************************************************************************
+ * ENUMS
+ *****************************************************************************/
+
+/******************************************************************************
+* DATA STRUCTURES
+ *****************************************************************************/
+typedef struct __attribute__ ((__packed__)) TRGT_INFO_Obj
+{
+  uint8_t 	endianness; 	/**< MCU Endianness */
+  union
+  {
+    struct
+    {
+      uint16_t 	part_id:8; /**<  part id */
+      uint16_t 	algo_id:5; /**<  algorithm id */
+      uint16_t 	pl_id:3;   /**<  Product line id */
+    };
+    uint16_t deviceId;     /**<  Device ID. Combination of Product line id (3 bits), algorithm id (5 bits) and part id*/
+  };
+
+  uint8_t 	fwVerMajor;	   /**<  Firmware Major version*/
+  uint8_t 	fwVerMinor;	   /**<  Firmware Minor version*/
+  uint8_t 	fwVerPatch;	   /**<  Firmware Patch version*/
+
+} TRGT_INFO_Obj;
+
+
+typedef struct DRV89xx_Device_Obj
+{
+
+  uint16_t DeviceID; // DRV89xx - Read IC_ID register and set the value
+  float Firmware_Version;
+  /* Device Parameters*/
+  volatile uint8_t nSleep;     /**< 0: Device Sleep , 1: Device Awake */
+  volatile uint8_t nFault;     /**< 0: No fault , 1: Fault */
+  volatile uint8_t ClrFlt;
+
+  /* Register Read Wite */
+   uint16_t   ManWriteAddr;
+   uint16_t   ManReadAddr;
+   uint16_t   ManWriteData;
+   uint16_t   ManReadData;
+   bool       ManWriteCmd;
+   bool       ManReadCmd;
+   bool       ReadCmd;
+   bool       WriteCmd;
+
+   uint16_t   revID;
+
+} DRV89xx_Device_Obj_t;
+
+
+extern volatile DRV89xx_Device_Obj_t gDRV89xx_Obj;
+
+
+
+/******************************************************************************
+ * EXTERN DECLARATIONS
+ *****************************************************************************/
+extern volatile TRGT_INFO_Obj targetInfo;
+extern volatile DRV89xx_Q1_REG_t gDeviceSpiReg;
+void uartTxByte(unsigned char byte);
+void UpdateGUI_DeviceControl();
+void UpdateGUI_Register();
+//void drv89xx_deviceID();
+/*****************************************************************************/
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/******************************************************************************
+ * API Prototypes
+ *****************************************************************************/
+/**
+ * @brief     :This function, Capture the device ID and initializes all the application parameters\n
+ * @param[in] void There is no argument
+ * @return    void (none)
+ */
+
+
+/**
+* @brief     :This function, initializes all the peripherals and DRV89xxx related GPIOs and registers\n
+ * @param[in] void There is no argument
+ * @return    void (none)
+ */
+void mcu_init();
+/**
+* @brief     :This function, initializes all the peripherals and DRV89xxx related GPIOs and registers\n
+ * @param[in] void There is no argument
+ * @return    void (none)
+ */
+void drv89xxq1_init(void);
+/**
+ * @brief     :Read and return the DRV89xxS SPI register value\n
+ * @param[in] addr, Address of SPI resister
+ * @return    uint16_t, SPI register value
+ */
+uint16_t drv89xxq1_readRegister(uint8_t addr);
+/**
+ * @brief     :Write the register value at given given address\n
+ * @param[in] addr, Address of SPI resister
+ * @param[in] data, Value of register that need to write
+ * @return    uint16_t (0)
+ */
+uint16_t drv89xxq1_writeRegister(uint8_t address, uint16_t data);
+
+void cmd_RxIsr(void);
+/**
+ * @brief     :Return the GPIO level by reading the gpio port(1 and 2) and gpio number\n
+ * @param[in] gpioPort, GPIO port number
+ * @param[in] gpioNum, GPIO pin number
+ * @return    uint8_t, 0 or 1 (gpio level)
+ */
+inline uint8_t drv89xxq1_getGPIO(uint8_t gpioPort, uint8_t gpioNum)
+{
+  if (gpioPort == 0x01)
+  {
+	if ((gpioNum & P1IN) == 0)
+		return 0;
+	else
+		return 1;
+  }
+  else if (gpioPort == 0x02)
+  {
+	if ((gpioNum & P2IN) == 0)
+		return 0;
+	else
+		return 1;
+  }
+  else
+  {
+	// do nothing
+	return 0;
+  }
+}
+/**
+ * @brief     :Configure the the GPIO value in the port 1 and 2\n
+ * @param[in] gpioPort, GPIO port number
+ * @param[in] gpioNum, GPIO pin number
+ * @param[in] gpioVal, GPIO value need to be configured
+ * @return    void(none)
+ */
+inline void drv89xxq1_setGPIO(uint8_t gpioPort, uint8_t gpioNum, uint8_t gpioVal)
+{
+  if (gpioPort == 0x01)
+  {
+    if (gpioVal == 0)
+      P1OUT &= ~gpioNum;
+    else
+    {
+    	if(gpioVal == 1)
+    		P1OUT |= gpioNum;
+    	if (gpioVal == 2)
+    		P1OUT |= 0;
+    }
+  }
+  else if (gpioPort == 0x02)
+  {
+    if (gpioVal == 0)
+      P2OUT &= ~gpioNum;
+    else
+      P2OUT |= gpioNum;
+  }
+  else
+  {
+    // do nothing
+  }
+}
+
+void drv89xxq1_clearFault(void);
+
+void drv89xxq1_regGUIRead(void);
+
+void drv89xxq1_regGUIWrite(void);
+
+void drv8x06q1_deviceID(void);
+
+/*****************************************************************************/
+
+/* Support for C++ codebase */
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* drv89xxq1_H_ */
+
+

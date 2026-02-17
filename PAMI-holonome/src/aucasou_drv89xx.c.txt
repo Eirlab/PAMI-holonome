@@ -1,0 +1,1023 @@
+/* --COPYRIGHT--,BSD
+ * Copyright (c) 2016, Texas Instruments Incorporated
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * *  Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ *
+ * *  Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * *  Neither the name of Texas Instruments Incorporated nor the names of
+ *    its contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * --/COPYRIGHT--*/
+
+/********************************************************************************
+ *
+ *  DRV89xx-q1.c - Definition file for utility functions
+ *  DRV89xxX-Q1EVM_FIRMWARE
+ *  8/21/2018
+ *
+ *******************************************************************************/
+
+/********************************************************************************
+ * HEADER FILES
+ *******************************************************************************/
+#include "../include/drv89xx.h"
+
+/********************************************************************************
+ * MACROS
+ *******************************************************************************/
+#pragma DATA_SECTION(gDRV89xx_Obj,".drvVarSection");
+#pragma DATA_SECTION(gDeviceSpiReg,".drvRegSection");
+volatile DRV89xx_Q1_REG_t gDeviceSpiReg;
+volatile DRV89xx_Device_Obj_t gDRV89xx_Obj;
+
+/********************************************************************************
+ * DATA
+ *******************************************************************************/
+
+void receivedDataCommand(unsigned char d); // only lower byte will be used even if MAU is bigger than 1 byte
+//int ID_DRV1_pin_resDis = 0;
+//int ID_DRV1_pin_resEn = 0;
+int temp = 0;
+/********************************************************************************
+ * LOCAL ROUTINES
+ *******************************************************************************/
+/*
+ * SPI Initilisation
+ */
+static inline void drv89xxq1_spiInit(void)
+{
+    P2OUT |= nSCS;
+    P2DIR |= nSCS;
+
+    P1SEL |= (SCLK | SDO | SDI);
+    P1SEL2 |= (SCLK | SDO | SDI);
+
+    UCB0CTL1 = UCSWRST;
+    // UCB0CTL0 |= UCCKPH + UCMSB + UCMST + UCSYNC; // 3-pin, 8-bit SPI master
+    UCB0CTL0 |= UCMSB | UCMST | UCSYNC;
+    UCB0CTL1 |= UCSSEL_2; // SMCLK
+    UCB0BR0 |= 0x14; // /100KHz
+    UCB0BR1 = 0; //
+    UCB0CTL1 &= ~UCSWRST; // **Initialize USCI state machine**
+}
+
+/*
+ * Clock Initilisation
+ */
+static inline void clock_Init(void)
+{
+    // 16MHz DCO required for 2MHz SMCLK
+    DCOCTL = 0x00;
+    DCOCTL = CALDCO_16MHZ;
+    BCSCTL1 = CALBC1_16MHZ;
+    // 2MHz SMCLK required for PWM frequency
+    BCSCTL2 |= DIVS_3;
+    // ACLK  = VLO
+    BCSCTL3 |= LFXT1S_2;
+
+}
+/*
+ * UART Initilisation
+ */
+static inline void uart_Init(void)
+{
+    // UART
+    /* P1.1 = RXD, P1.2=TXD */
+    P1SEL |= TX | RX;
+    /* P1.1 = RXD, P1.2=TXD */
+    P1SEL2 |= TX | RX;
+    /* SMCLK */
+    UCA0CTL1 |= UCSSEL_2;
+    /* 2MHz 9600 */
+    UCA0BR0 = 208;
+    UCA0BR1 = 0;
+    /* Modulation UCBRSx = 1 */
+    UCA0MCTL = UCBRS0;
+    /* **Initialize USCI state machine** */
+    UCA0CTL1 &= ~UCSWRST;
+    /* Enable USCI_A0 RX interrupt */
+    IE2 |= UCA0RXIE;
+}
+
+/*
+ * GPIO Initilisation. This block configures all the DRV8873x PINs.
+ */
+static inline void gpio_Init()
+{
+    P1SEL &= ~(PUSH);
+    P1SEL2 &= ~(PUSH);
+    P1DIR &= ~(PUSH);
+    P1OUT |= (PUSH);      // Add these two lines
+    P1REN |= (PUSH);      // Add these two lines
+
+    P2SEL &= ~(nSCS | nFAULT | nSLEEP | DISABLE | STATUS);
+    P2SEL2 &= ~(nSCS | nFAULT | nSLEEP | DISABLE | STATUS);
+    P2OUT &= ~(nSCS | nSLEEP | DISABLE | STATUS);
+    P2DIR |= (nSLEEP | DISABLE | STATUS);
+    P2DIR &= ~(nFAULT);
+
+    P2REN |= (nFAULT);
+    P2OUT |= (nFAULT);
+
+    // Disable h-bridge
+    P2OUT &= ~DISABLE; /** < Enable H-Bridge*/
+
+//    // Delay to allow for device wake up (~1ms)
+//    _delay_cycles(8000);
+}
+
+/*
+ * Setup Watchdog Timer as an Interval Timer(250ms)
+ * Timer Interval to Blink the STATUS LED(P2.7)
+ */
+static inline void watchdogTimer_Init(void)
+{
+    WDTCTL = WDT_ADLY_250; /** < Configure time interval*/
+    IE1 |= WDTIE; /** < Interrupt enable*/
+}
+
+void UpdateGUI_DeviceControl()
+{
+
+    /* During Fault Condition*/
+    if (read_FAULT_pin == 0)
+        gDRV89xx_Obj.nFault = 0;
+    else
+        gDRV89xx_Obj.nFault = 1;
+
+    if (gDRV89xx_Obj.nSleep == 1 && temp == 1)
+    {
+        set_nSLEEP_hi
+        ;
+        _delay_cycles(8000);
+        temp = 0;
+    }
+    if (gDRV89xx_Obj.nSleep == 0 && temp == 0)
+    {
+        temp = 1;
+        set_nSLEEP_lo
+        ;
+        _delay_cycles(8000);
+    }
+
+}
+
+/*
+ * Configure the registers of the device .
+ **/
+void drv89xxq1_regGUIRead(void)
+{
+    gDeviceSpiReg.ic_stat_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_IC_STAT) & 0xFF);
+    gDeviceSpiReg.ocp_stat1_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OCP_STAT_1) & 0xFF);
+    gDeviceSpiReg.ocp_stat2_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OCP_STAT_2) & 0xFF);
+    gDeviceSpiReg.ocp_stat3_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OCP_STAT_3) & 0xFF);
+    gDeviceSpiReg.old_stat1_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OLD_STAT_1) & 0xFF);
+    gDeviceSpiReg.old_stat2_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OLD_STAT_2) & 0xFF);
+    gDeviceSpiReg.old_stat3_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OLD_STAT_3) & 0xFF);
+    gDeviceSpiReg.config_ctrl_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_CONFIG_CTRL) & 0xFF);
+    gDeviceSpiReg.op_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OP_CTRL_1) & 0xFF);
+    gDeviceSpiReg.op_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OP_CTRL_2) & 0xFF);
+    gDeviceSpiReg.op_ctrl_3_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_OP_CTRL_3) & 0xFF);
+    gDeviceSpiReg.pwm_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_PWM_CTRL_1) & 0xFF);
+    gDeviceSpiReg.pwm_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_PWM_CTRL_2) & 0xFF);
+    gDeviceSpiReg.fw_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_FW_CTRL_1) & 0xFF);
+    gDeviceSpiReg.fw_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_FW_CTRL_2) & 0xFF);
+    gDeviceSpiReg.pwm_map_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_PWM_MAP_CTRL_1) & 0xFF);
+    gDeviceSpiReg.pwm_map_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_PWM_MAP_CTRL_2) & 0xFF);
+    gDeviceSpiReg.pwm_map_ctrl_3_reg = (uint8_t) (drv89xxq1_readRegister(
+    SPI_REG_PWM_MAP_CTRL_3) & 0xFF);
+
+    if (gDRV89xx_Obj.DeviceID == 2 || gDRV89xx_Obj.DeviceID == 3
+            || gDRV89xx_Obj.DeviceID == 4)
+    {   // DRV8908/6/4-Q1EVM 1p0 or greater
+        gDeviceSpiReg.pwm_map_ctrl_4_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_MAP_CTRL_4_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_freq_ctrl_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_FREQ_CTRL_1_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_freq_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_FREQ_CTRL_2_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_1_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_2_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_3_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_3_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_4_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_4_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_5_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_5_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_6_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_6_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_7_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_7_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_8_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_8_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.sr_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_SR_CTRL_1_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.sr_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_SR_CTRL_2_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_1_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_2_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.ocp_ctrl_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_3_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_4_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_4_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_5_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_5_08_06_04_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_6_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_6_08_06_04_1p0) & 0xFF);
+    }
+    else if (gDRV89xx_Obj.DeviceID == 0 || gDRV89xx_Obj.DeviceID == 1)
+    {   // DRV8912/10-Q1EVM 1p0 or greater
+        gDeviceSpiReg.pwm_freq_ctrl_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_FREQ_1_CTRL_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_1_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_2_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_3_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_3_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.pwm_duty_ctrl_4_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_PWM_DUTY_CTRL_4_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.sr_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_SR_CTRL_1_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.sr_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_SR_CTRL_2_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_1_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_1_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_2_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_2_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.ocp_ctrl_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_3_12_10_1p1_1p0) & 0xFF);
+        gDeviceSpiReg.old_ctrl_4_reg = (uint8_t) (drv89xxq1_readRegister(
+        SPI_REG_OLD_CTRL_4_12_10_1p1_1p0) & 0xFF);
+    }
+}
+
+// Write all Registers of the device
+void drv89xxq1_regGUIWrite(void)
+{
+    drv89xxq1_writeRegister(SPI_REG_CONFIG_CTRL, gDeviceSpiReg.config_ctrl_reg);
+    drv89xxq1_writeRegister(SPI_REG_OP_CTRL_1, gDeviceSpiReg.op_ctrl_1_reg);
+    drv89xxq1_writeRegister(SPI_REG_OP_CTRL_2, gDeviceSpiReg.op_ctrl_2_reg);
+    drv89xxq1_writeRegister(SPI_REG_OP_CTRL_3, gDeviceSpiReg.op_ctrl_3_reg);
+    drv89xxq1_writeRegister(SPI_REG_PWM_CTRL_1, gDeviceSpiReg.pwm_ctrl_1_reg);
+    drv89xxq1_writeRegister(SPI_REG_PWM_CTRL_2, gDeviceSpiReg.pwm_ctrl_2_reg);
+    drv89xxq1_writeRegister(SPI_REG_FW_CTRL_1, gDeviceSpiReg.fw_ctrl_1_reg);
+    drv89xxq1_writeRegister(SPI_REG_FW_CTRL_2, gDeviceSpiReg.fw_ctrl_2_reg);
+    drv89xxq1_writeRegister(SPI_REG_PWM_MAP_CTRL_1, gDeviceSpiReg.pwm_map_ctrl_1_reg);
+    drv89xxq1_writeRegister(SPI_REG_PWM_MAP_CTRL_2, gDeviceSpiReg.pwm_map_ctrl_2_reg);
+    drv89xxq1_writeRegister(SPI_REG_PWM_MAP_CTRL_3, gDeviceSpiReg.pwm_map_ctrl_3_reg);
+
+    if (gDRV89xx_Obj.DeviceID == 2 || gDRV89xx_Obj.DeviceID == 3
+            || gDRV89xx_Obj.DeviceID == 4)
+    {   // DRV8908/6/4-Q1EVM 1p0 or greater
+        drv89xxq1_writeRegister(SPI_REG_PWM_MAP_CTRL_4_08_06_04_1p0, gDeviceSpiReg.pwm_map_ctrl_4_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_FREQ_CTRL_1_08_06_04_1p0, gDeviceSpiReg.pwm_freq_ctrl_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_FREQ_CTRL_2_08_06_04_1p0, gDeviceSpiReg.pwm_freq_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_1_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_1_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_2_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_3_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_3_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_4_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_4_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_5_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_5_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_6_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_6_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_7_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_7_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_8_08_06_04_1p0, gDeviceSpiReg.pwm_duty_ctrl_8_reg);
+        drv89xxq1_writeRegister(SPI_REG_SR_CTRL_1_08_06_04_1p0, gDeviceSpiReg.sr_ctrl_1_reg);
+        drv89xxq1_writeRegister(SPI_REG_SR_CTRL_2_08_06_04_1p0, gDeviceSpiReg.sr_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_1_08_06_04_1p0, gDeviceSpiReg.old_ctrl_1_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_2_08_06_04_1p0, gDeviceSpiReg.old_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_3_08_06_04_1p0, gDeviceSpiReg.ocp_ctrl_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_4_08_06_04_1p0, gDeviceSpiReg.old_ctrl_4_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_5_08_06_04_1p0, gDeviceSpiReg.old_ctrl_5_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_6_08_06_04_1p0, gDeviceSpiReg.old_ctrl_6_reg);
+    }
+    else if (gDRV89xx_Obj.DeviceID == 0 || gDRV89xx_Obj.DeviceID == 1)
+    {   // DRV8912/10-Q1EVM 1p0 or greater
+        drv89xxq1_writeRegister(SPI_REG_PWM_FREQ_1_CTRL_12_10_1p1_1p0, gDeviceSpiReg.pwm_freq_ctrl_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_1_12_10_1p1_1p0, gDeviceSpiReg.pwm_duty_ctrl_1_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_2_12_10_1p1_1p0, gDeviceSpiReg.pwm_duty_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_3_12_10_1p1_1p0, gDeviceSpiReg.pwm_duty_ctrl_3_reg);
+        drv89xxq1_writeRegister(SPI_REG_PWM_DUTY_CTRL_4_12_10_1p1_1p0, gDeviceSpiReg.pwm_duty_ctrl_4_reg);
+        drv89xxq1_writeRegister(SPI_REG_SR_CTRL_1_12_10_1p1_1p0, gDeviceSpiReg.sr_ctrl_1_reg);
+        drv89xxq1_writeRegister(SPI_REG_SR_CTRL_2_12_10_1p1_1p0, gDeviceSpiReg.sr_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_1_12_10_1p1_1p0, gDeviceSpiReg.old_ctrl_1_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_2_12_10_1p1_1p0, gDeviceSpiReg.old_ctrl_2_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_3_12_10_1p1_1p0, gDeviceSpiReg.ocp_ctrl_reg);
+        drv89xxq1_writeRegister(SPI_REG_OLD_CTRL_4_12_10_1p1_1p0, gDeviceSpiReg.old_ctrl_4_reg);
+    }
+}
+
+void UpdateGUI_Register()
+{
+    uint16_t drvDataNew;
+    uint8_t drvRegAddr;
+    if (gDRV89xx_Obj.nSleep == 1)
+    {
+        /* Clear faults */
+        if (gDeviceSpiReg.config_ctrl_reg & CLR_FLT_MASK)
+        {
+            drv89xxq1_writeRegister(SPI_REG_CONFIG_CTRL,
+                                    (uint16_t) gDeviceSpiReg.config_ctrl_reg);
+            gDeviceSpiReg.config_ctrl_reg = (uint8_t) (drv89xxq1_readRegister(
+                    SPI_REG_CONFIG_CTRL) & 0xFF);
+            gDeviceSpiReg.ic_stat_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_IC_STAT) & 0xFF);
+            gDeviceSpiReg.ocp_stat1_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_OCP_STAT_1) & 0xFF);
+            gDeviceSpiReg.ocp_stat2_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_OCP_STAT_2) & 0xFF);
+            gDeviceSpiReg.ocp_stat3_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_OCP_STAT_3) & 0xFF);
+            gDeviceSpiReg.old_stat1_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_OLD_STAT_1) & 0xFF);
+            gDeviceSpiReg.old_stat2_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_OLD_STAT_2) & 0xFF);
+            gDeviceSpiReg.old_stat3_reg = (uint8_t) (drv89xxq1_readRegister(
+            SPI_REG_OLD_STAT_3) & 0xFF);
+        }
+
+        if (gDRV89xx_Obj.ManWriteCmd)
+        {
+            // Custom Write
+            drvRegAddr = gDRV89xx_Obj.ManWriteAddr;
+            drvDataNew = gDRV89xx_Obj.ManWriteData;
+
+            drv89xxq1_writeRegister((uint8_t) drvRegAddr,
+                                    (uint16_t) drvDataNew);
+
+            switch (drvRegAddr)
+            {
+            case SPI_REG_IC_STAT : /* IC Status Register */
+                gDeviceSpiReg.ic_stat_reg = drvDataNew; /* IC Status Register, Address = 0x00h*/
+                break;
+
+            case SPI_REG_OCP_STAT_1 : /* OCP Status 1 Register   */
+                gDeviceSpiReg.ocp_stat1_reg = drvDataNew; /* OCP Status 1 Register, Address = 0x01h*/
+                break;
+
+            case SPI_REG_OCP_STAT_2 : /* OCP Status 2 Register  */
+                gDeviceSpiReg.ocp_stat2_reg = drvDataNew; /* OCP Status 2 Register, Address = 0x02h*/
+                break;
+
+            case SPI_REG_OCP_STAT_3 : /* OCP Status 3 Register */
+                gDeviceSpiReg.ocp_stat3_reg = drvDataNew; /* OCP Status 3 Register, Address = 0x03h*/
+                break;
+
+            case SPI_REG_OLD_STAT_1 : /* OLD Status 1 Register  */
+                gDeviceSpiReg.old_stat1_reg = drvDataNew; /* OLD Status 1 Register, Address = 0x04h*/
+                break;
+
+            case SPI_REG_OLD_STAT_2 : /* OLD Status 2 Register  */
+                gDeviceSpiReg.old_stat2_reg = drvDataNew; /* OLD Status 2 Register, Address = 0x05h*/
+                break;
+
+            case SPI_REG_OLD_STAT_3 : /* OLD Status 3 Register  */
+                gDeviceSpiReg.old_stat3_reg = drvDataNew; /* OLD Status 3 Register, Address = 0x06h*/
+                break;
+
+            case SPI_REG_CONFIG_CTRL : /* Configuration  Register  */
+                gDeviceSpiReg.config_ctrl_reg = drvDataNew; /* Config Control  Register, Address = 0x07h*/
+                break;
+
+            case SPI_REG_OP_CTRL_1 : /* Operation Control 1 Register */
+                gDeviceSpiReg.op_ctrl_1_reg = drvDataNew; /* OP Control 1 Register, Address = 0x08h*/
+                break;
+
+            case SPI_REG_OP_CTRL_2 : /* Operation Control 2 Register */
+                gDeviceSpiReg.op_ctrl_2_reg = drvDataNew; /* OP Control 2 Register, Address = 0x09h*/
+                break;
+
+            case SPI_REG_OP_CTRL_3 : /* Operation Control 3 Register */
+                gDeviceSpiReg.op_ctrl_3_reg = drvDataNew; /* OP Control 3 Register, Address = 0x0Ah*/
+                break;
+
+            case SPI_REG_PWM_CTRL_1 : /* PWM Control 1 Register */
+                gDeviceSpiReg.pwm_ctrl_1_reg = drvDataNew; /* PWM Control 1 Register, Address = 0x0Bh*/
+                break;
+
+            case SPI_REG_PWM_CTRL_2 : /* PWM Control 2 Register */
+                gDeviceSpiReg.pwm_ctrl_2_reg = drvDataNew; /* PWM Control 2 Register, Address = 0x0Ch*/
+                break;
+
+            case SPI_REG_FW_CTRL_1 : /* Free-Wheeling Control 1 Register */
+                gDeviceSpiReg.fw_ctrl_1_reg = drvDataNew; /* FW Control 1 Register, Address = 0x0Dh*/
+                break;
+
+            case SPI_REG_FW_CTRL_2 : /* Free-Wheeling Control 2 Register */
+                gDeviceSpiReg.fw_ctrl_2_reg = drvDataNew; /* FW Control 2 Register, Address = 0x0Eh*/
+                break;
+
+            case SPI_REG_PWM_MAP_CTRL_1 : /* PWM Map Control 1 Register */
+                gDeviceSpiReg.pwm_map_ctrl_1_reg = drvDataNew; /* PWM Map Control 1 Register, Address = 0x0Fh*/
+                break;
+
+            case SPI_REG_PWM_MAP_CTRL_2 : /* PWM Map Control 2 Register */
+                gDeviceSpiReg.pwm_map_ctrl_2_reg = drvDataNew; /* PWM Map Control 2 Register, Address = 0x10h*/
+                break;
+
+            case SPI_REG_PWM_MAP_CTRL_3 : /* PWM Map Control 3 Register */
+                gDeviceSpiReg.pwm_map_ctrl_3_reg = drvDataNew; /* PWM Map Control 3 Register, Address = 0x11h*/
+                break;
+
+            default:
+                break;
+
+            }      // End of Switch
+
+            if (gDRV89xx_Obj.DeviceID == 2 || gDRV89xx_Obj.DeviceID == 3
+                    || gDRV89xx_Obj.DeviceID == 4)
+            {   // DRV8908/6/4-Q1EVM 1p0 or greater
+                switch (drvRegAddr)
+                {
+
+                case SPI_REG_PWM_MAP_CTRL_4_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_map_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_FREQ_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_freq_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_FREQ_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_freq_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_3_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_3_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_4_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_5_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_5_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_6_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_6_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_7_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_7_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_8_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_8_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.sr_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.sr_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_3_08_06_04_1p0 :
+                    gDeviceSpiReg.ocp_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_4_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_5_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_5_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_6_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_6_reg = drvDataNew;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+            else if (gDRV89xx_Obj.DeviceID == 0 || gDRV89xx_Obj.DeviceID == 1)
+            {   // DRV8912/10-Q1EVM 1p0 or greater
+                switch (drvRegAddr)
+                {
+
+                case SPI_REG_PWM_FREQ_1_CTRL_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_freq_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_1_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_2_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_3_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_3_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_4_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_1_12_10_1p1_1p0 :
+                    gDeviceSpiReg.sr_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_2_12_10_1p1_1p0 :
+                    gDeviceSpiReg.sr_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_1_12_10_1p1_1p0 :
+                    gDeviceSpiReg.old_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_2_12_10_1p1_1p0 :
+                    gDeviceSpiReg.old_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_3_12_10_1p1_1p0 :
+                    gDeviceSpiReg.ocp_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_4_12_10_1p1_1p0 :
+                    gDeviceSpiReg.old_ctrl_4_reg = drvDataNew;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+            gDRV89xx_Obj.ManWriteCmd = false;
+        } // End of Write Cmd
+
+        if (gDRV89xx_Obj.WriteCmd)
+        {
+            drv89xxq1_regGUIWrite();
+            gDRV89xx_Obj.WriteCmd = false;
+        }
+
+        if (gDRV89xx_Obj.ReadCmd)
+        {
+            drv89xxq1_regGUIRead();
+            gDRV89xx_Obj.ReadCmd = false;
+        }
+        if (gDRV89xx_Obj.ManReadCmd)
+        {
+
+            // Custom Read
+            drvRegAddr = gDRV89xx_Obj.ManReadAddr;
+            drvDataNew = drv89xxq1_readRegister((uint8_t) drvRegAddr);
+
+            gDRV89xx_Obj.ManReadCmd = false;
+            gDRV89xx_Obj.ManReadData = drvDataNew;
+            switch (drvRegAddr)
+            {
+            case SPI_REG_IC_STAT : /* IC Status Register */
+                gDeviceSpiReg.ic_stat_reg = drvDataNew; /* IC Status Register, Address = 0x00h*/
+                break;
+
+            case SPI_REG_OCP_STAT_1 : /* OCP Status 1 Register   */
+                gDeviceSpiReg.ocp_stat1_reg = drvDataNew; /* OCP Status 1 Register, Address = 0x01h*/
+                break;
+
+            case SPI_REG_OCP_STAT_2 : /* OCP Status 2 Register  */
+                gDeviceSpiReg.ocp_stat2_reg = drvDataNew; /* OCP Status 2 Register, Address = 0x02h*/
+                break;
+
+            case SPI_REG_OCP_STAT_3 : /* OCP Status 3 Register */
+                gDeviceSpiReg.ocp_stat3_reg = drvDataNew; /* OCP Status 3 Register, Address = 0x03h*/
+                break;
+
+            case SPI_REG_OLD_STAT_1 : /* OLD Status 1 Register  */
+                gDeviceSpiReg.old_stat1_reg = drvDataNew; /* OLD Status 1 Register, Address = 0x04h*/
+                break;
+
+            case SPI_REG_OLD_STAT_2 : /* OLD Status 2 Register  */
+                gDeviceSpiReg.old_stat2_reg = drvDataNew; /* OLD Status 2 Register, Address = 0x05h*/
+                break;
+
+            case SPI_REG_OLD_STAT_3 : /* OLD Status 3 Register  */
+                gDeviceSpiReg.old_stat3_reg = drvDataNew; /* OLD Status 3 Register, Address = 0x06h*/
+                break;
+
+            case SPI_REG_CONFIG_CTRL : /* Configuration  Register  */
+                gDeviceSpiReg.config_ctrl_reg = drvDataNew; /* Config Control  Register, Address = 0x07h*/
+                break;
+
+            case SPI_REG_OP_CTRL_1 : /* Operation Control 1 Register */
+                gDeviceSpiReg.op_ctrl_1_reg = drvDataNew; /* OP Control 1 Register, Address = 0x08h*/
+                break;
+
+            case SPI_REG_OP_CTRL_2 : /* Operation Control 2 Register */
+                gDeviceSpiReg.op_ctrl_2_reg = drvDataNew; /* OP Control 2 Register, Address = 0x09h*/
+                break;
+
+            case SPI_REG_OP_CTRL_3 : /* Operation Control 3 Register */
+                gDeviceSpiReg.op_ctrl_3_reg = drvDataNew; /* OP Control 3 Register, Address = 0x0Ah*/
+                break;
+
+            case SPI_REG_PWM_CTRL_1 : /* PWM Control 1 Register */
+                gDeviceSpiReg.pwm_ctrl_1_reg = drvDataNew; /* PWM Control 1 Register, Address = 0x0Bh*/
+                break;
+
+            case SPI_REG_PWM_CTRL_2 : /* PWM Control 2 Register */
+                gDeviceSpiReg.pwm_ctrl_2_reg = drvDataNew; /* PWM Control 2 Register, Address = 0x0Ch*/
+                break;
+
+            case SPI_REG_FW_CTRL_1 : /* Free-Wheeling Control 1 Register */
+                gDeviceSpiReg.fw_ctrl_1_reg = drvDataNew; /* FW Control 1 Register, Address = 0x0Dh*/
+                break;
+
+            case SPI_REG_FW_CTRL_2 : /* Free-Wheeling Control 2 Register */
+                gDeviceSpiReg.fw_ctrl_2_reg = drvDataNew; /* FW Control 2 Register, Address = 0x0Eh*/
+                break;
+
+            case SPI_REG_PWM_MAP_CTRL_1 : /* PWM Map Control 1 Register */
+                gDeviceSpiReg.pwm_map_ctrl_1_reg = drvDataNew; /* PWM Map Control 1 Register, Address = 0x0Fh*/
+                break;
+
+            case SPI_REG_PWM_MAP_CTRL_2 : /* PWM Map Control 2 Register */
+                gDeviceSpiReg.pwm_map_ctrl_2_reg = drvDataNew; /* PWM Map Control 2 Register, Address = 0x10h*/
+                break;
+
+            case SPI_REG_PWM_MAP_CTRL_3 : /* PWM Map Control 3 Register */
+                gDeviceSpiReg.pwm_map_ctrl_3_reg = drvDataNew; /* PWM Map Control 3 Register, Address = 0x11h*/
+                break;
+
+            default:
+                break;
+
+            }      // End of Switch
+
+            if (gDRV89xx_Obj.DeviceID == 2 || gDRV89xx_Obj.DeviceID == 3
+                    || gDRV89xx_Obj.DeviceID == 4)
+            {   // DRV8908/6/4-Q1EVM 1p0 or greater
+                switch (drvRegAddr)
+                {
+
+                case SPI_REG_PWM_MAP_CTRL_4_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_map_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_FREQ_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_freq_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_FREQ_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_freq_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_3_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_3_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_4_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_5_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_5_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_6_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_6_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_7_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_7_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_8_08_06_04_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_8_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.sr_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.sr_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_1_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_2_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_3_08_06_04_1p0 :
+                    gDeviceSpiReg.ocp_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_4_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_5_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_5_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_6_08_06_04_1p0 :
+                    gDeviceSpiReg.old_ctrl_6_reg = drvDataNew;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+            else if (gDRV89xx_Obj.DeviceID == 0 || gDRV89xx_Obj.DeviceID == 1)
+            {   // DRV8912/10-Q1EVM 1p0 or greater
+
+                switch (drvRegAddr)
+                {
+
+                case SPI_REG_PWM_FREQ_1_CTRL_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_freq_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_1_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_2_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_3_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_3_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_PWM_DUTY_CTRL_4_12_10_1p1_1p0 :
+                    gDeviceSpiReg.pwm_duty_ctrl_4_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_1_12_10_1p1_1p0 :
+                    gDeviceSpiReg.sr_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_SR_CTRL_2_12_10_1p1_1p0 :
+                    gDeviceSpiReg.sr_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_1_12_10_1p1_1p0 :
+                    gDeviceSpiReg.old_ctrl_1_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_2_12_10_1p1_1p0 :
+                    gDeviceSpiReg.old_ctrl_2_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_3_12_10_1p1_1p0 :
+                    gDeviceSpiReg.ocp_ctrl_reg = drvDataNew;
+                    break;
+
+                case SPI_REG_OLD_CTRL_4_12_10_1p1_1p0 :
+                    gDeviceSpiReg.old_ctrl_4_reg = drvDataNew;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/*
+ * This is SPI interface, used to read the device configurations,parameters and
+ * status information for S version of device.
+ * Register format |R/W|A4|A3|A2|A1|A0|*|*|D7|D6|D5|D4|D3|D2|D1|D0|
+ * Ax is address bit, Dx is data bits and R/W is read write bit.
+ * For read R/W bit should be 1.
+ */
+uint16_t drv89xxq1_readRegister(uint8_t address)
+{
+    volatile uint16_t reg_value = 0;
+    volatile uint8_t dataMSB = 0;
+    volatile uint8_t dataLSB = 0;
+
+    reg_value |= SPI_RW_BIT_MASK; /*Set R/W bit*/
+    reg_value |= ((address << SPI_ADDRESS_POS) & SPI_ADDRESS_MASK); /* Configure register address value*/
+
+    P2OUT &= ~nSCS; //SPI set
+
+    while (!(IFG2 & UCB0TXIFG))
+        ; /* USCI_B0 TX buffer ready*/
+    UCB0TXBUF = (uint8_t) ((reg_value >> 8) & 0xFF); /* Transmit the Address(MSB Byte)*/
+
+    while (UCB0STAT & SPI_BUSY_FLAG)
+    {
+        ; /* Wait till Transmission is complete*/
+    }
+    dataMSB = UCB0RXBUF; /* Receive the First byte of data, MSB byte*/
+
+    UCB0TXBUF = 0x00; /* Transmit Second byte*/
+    while (UCB0STAT & SPI_BUSY_FLAG)
+    {
+        ; /* Wait till Transmission is complete*/
+    }
+    dataLSB = UCB0RXBUF & 0xFF; /* Receive the Second byte,LSB byte*/
+
+    P2OUT |= nSCS; //SPI Reset
+    _delay_cycles(10);
+
+    reg_value = ((((dataMSB << 8) | dataLSB) & SPI_DATA_MASK) >> SPI_DATA_POS); /* complete data */
+
+    return (reg_value);
+}
+
+/*
+ * This is SPI interface, used to write the set device configurations and operating
+ * parameters of S version of device.
+ * Register format |R/W|A4|A3|A2|A1|A0|*|*|D7|D6|D5|D4|D3|D2|D1|D0|
+ * Ax is address bit, Dx is data bits and R/W is read write bit.
+ * For write R/W bit should 0.
+ */
+uint16_t drv89xxq1_writeRegister(uint8_t address, uint16_t data)
+{
+    volatile uint16_t reg_value = 0;
+
+    reg_value |= ((address << SPI_ADDRESS_POS) & SPI_ADDRESS_MASK); /* Adding register address value*/
+    reg_value |= ((data << SPI_DATA_POS) & SPI_DATA_MASK); /*Adding data value */
+
+    P2OUT &= ~nSCS; /*SPI set*/
+
+    while (!(IFG2 & UCB0TXIFG))
+        ; /* USCI_B0 TX buffer ready?*/
+
+    UCB0TXBUF = (uint8_t) ((reg_value >> 8) & 0xFF); /* Transmit first Byte,MSB-Byte*/
+
+    while (!(IFG2 & UCB0TXIFG))
+        ; /* USCI_B0 TX buffer ready*/
+
+    UCB0TXBUF = (uint8_t) (reg_value & 0xFF); /* Transmit Second Byte, LSB-Byte*/
+
+    while (UCB0STAT & SPI_BUSY_FLAG)
+    {
+        ; /* Wait till Transmission is complete*/
+    }
+
+    P2OUT |= nSCS; /*SPI Reset*/
+    _delay_cycles(10);
+
+    return 0;
+}
+
+void cmd_RxIsr()
+{
+// disable UART interrupt
+    IE2 &= ~UCA0RXIE;
+    __no_operation();
+    __no_operation();
+    __bis_SR_register(GIE); // 15Apr2014 -- RLD re-enabled interrupt to allow timer interrupts
+//
+    /* USCI_A0 TX buffer ready? */
+    while (!(IFG2 & UCA0TXIFG))
+        ;
+
+    /* Parse received command immediately */
+    receivedDataCommand(UCA0RXBUF);
+
+// re-enable UART interrupt
+    __bic_SR_register(GIE); // 15Apr2014 -- RLD disabled interrupt
+    __no_operation();
+    __no_operation();
+    IE2 |= UCA0RXIE;
+
+}
+
+void uartTxByte(unsigned char byte)
+{
+
+    /* USCI_A0 TX buffer ready? */
+    while (!(IFG2 & UCA0TXIFG))
+        ;
+    /* transmite data */
+    UCA0TXBUF = byte;
+
+}
+
+//void drv89xx_deviceID()
+//{
+//
+//    uint8_t tempID = 0x00;
+//    tempID = (uint8_t) drv89xxq1_readRegister(SPI_REG_CONFIG_CTRL);
+//    tempID = tempID >> 4;
+//
+//    if (tempID == 0)
+//        gDRV89xx_Obj.DeviceID = 8912;
+//    else if (tempID == 3)
+//        gDRV89xx_Obj.DeviceID = 8908;
+//
+//}
+
+void mcu_init()
+{
+// Stop Watchdog Timer
+    WDTCTL = WDTPW | WDTHOLD;
+
+    // Setup CLKs
+    clock_Init();
+    uart_Init();
+    gpio_Init();
+    drv89xxq1_spiInit();
+    watchdogTimer_Init();
+}
+
+/*******************************************************************************
+ * API IMPLEMENTATION
+ *******************************************************************************/
+void drv89xxq1_init()
+{
+//    gDRV89xx_Obj.Firmware_Version = 1.2; // updated the drv908/6/4 to remove 1p1 based functionality
+    gDRV89xx_Obj.Firmware_Version = 1.33; // updated 1p2 with the following changes
+    // Initial clear fault removed to maintain true device behavior at startup
+    // Fixed nSCS operation in SPIInit function
+    gDRV89xx_Obj.nFault = 1;
+
+    set_nSLEEP_hi
+    ;
+
+    __delay_cycles(8000);
+
+    gDRV89xx_Obj.nSleep = drv89xxq1_getGPIO(0x02, nSLEEP);
+
+    //clear fault initially
+    // drv89xxq1_writeRegister(SPI_REG_CONFIG_CTRL, CLR_FLT_MASK); // disabled in 1p3 was enabled in 1p2
+
+    // Setup EVM Identification
+
+    gDRV89xx_Obj.DeviceID = drv89xxq1_readRegister(0x07) >> 4; // drvID
+
+    gDRV89xx_Obj.revID = drv89xxq1_readRegister(0x1C) >> 3; // 1p1 or 1p0
+
+//    set_nSLEEP_lo;
+
+}
