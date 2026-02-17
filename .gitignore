@@ -1,5 +1,2 @@
 PAMI-holonome/.pio
-PAMI-holonome/.vscode/.browse.c_cpp.db*
-PAMI-holonome/.vscode/c_cpp_properties.json
-PAMI-holonome/.vscode/launch.json
-PAMI-holonome/.vscode/ipch
+.vscode/
