@@ -15,32 +15,13 @@ Adafruit_NeoPixel strip(NUM_LEDS, LED, NEO_GRB + NEO_KHZ800);
 int hue = 0; // Variable pour la teinte des LEDs
 int angle = 0; // Variable pour l'angle de rotation des servos
 unsigned char alpha = 0; // luminosité des LEDs
+char mode = 'H'; // Mode de fonctionnement (H pour holonomique, D pour différentiel)
 
 void bluetoothInterface();
 
 PAMI::PAMI(){
     pinMode(BUZZER, OUTPUT);
-    // pcf8575.pinMode(7, OUTPUT);
-    // pcf8575.pinMode(11, OUTPUT);
 
-    // pcf8575.pinMode(1, OUTPUT);
-    // pcf8575.pinMode(2, OUTPUT);
-    // pcf8575.pinMode(3, OUTPUT);
-    // pcf8575.pinMode(4, OUTPUT);
-    // pcf8575.pinMode(5, OUTPUT);
-    // pcf8575.pinMode(6, OUTPUT);
-
-    // pcf8575.pinMode(16, OUTPUT);
-    // pcf8575.pinMode(15, OUTPUT);
-    // pcf8575.pinMode(14, OUTPUT);
-    // pcf8575.pinMode(13, OUTPUT);
-    // pcf8575.pinMode(0, OUTPUT);
-
-    // pcf8575.begin();
-
-    // pinMode(IO13, OUTPUT);
-    // pinMode(IO2, OUTPUT);
-    // pinMode(IO26, OUTPUT);
     xTaskCreate(
         [](void* pvParameters) { static_cast<PAMI*>(pvParameters)->bluetoothInterface(); },  // Tâche Bluetooth
         "Bluetooth",
@@ -91,16 +72,13 @@ void PAMI::bluetoothInterface() {
                 // Serial.print("alpha : ");
                 // Serial.println(alpha);
             }
-            else if (id.startsWith("deploy")) {
-                // avancerCanettes();
-                // delay(value);
-                // arreterCanettes();
+            else if(id.startsWith("MODE_D")) {
+              mode = 'D';
             }
-            else if (id.startsWith("retract")) {
-                // reculerCanettes();
-                // delay(value);
-                // arreterCanettes();
+            else if (id.startsWith("MODE_H")) {
+              mode = 'H';
             }
+            
             else Serial.println("Commande inconnue");
         }
         vTaskDelay(1 / portTICK_PERIOD_MS); // Délai pour éviter une boucle trop rapide
@@ -120,25 +98,25 @@ void animateLedsTask(void *pvParameters) {
         strip.setPixelColor(i, strip.ColorHSV(hue, 255, a*a/255));
       }
       strip.show();
-      hue += 256; // petit pas de teinte
+      hue += 256;
       if (hue >= 65536) hue = 0;
-      vTaskDelay(30 / portTICK_PERIOD_MS); // délai fluide
+      vTaskDelay(30 / portTICK_PERIOD_MS);
     }
-  }
-
-  unsigned char PAMI::readPot(){
-    return map(analogRead(POT), 0, 4095, 0, 255);
   }
 
 void PAMI::animateLeds(){
   xTaskCreate(
-      animateLedsTask,      // Tâche LEDs
+      animateLedsTask,
       "LEDs",
       2048,
       NULL,
       1,
       NULL
   );
+}
+
+unsigned char PAMI::readPot(){
+  return map(analogRead(POT), 0, 4095, 0, 255);
 }
 
 // === Tâche 3 : Animation LED Bluetooth ===
@@ -219,17 +197,7 @@ void playTone(int freq, int duration) {
         // Wait for the specief duration before playing the next note.
         vTaskDelay(noteDuration);
         
-        // stop the waveform generation before the next note.
-        // noTone(BUZZER_PIN);
       }
-  
-      // for (int i = 0; i < sizeof(melody) / sizeof(int); i++) {
-      //   int freq = melody[i];
-      //   int duration = noteDurations[i];
-      //   playTone(freq, duration);
-      //   vTaskDelay(50 / portTICK_PERIOD_MS);
-      // }
-      // vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
   }
 
